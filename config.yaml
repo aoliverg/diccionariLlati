@@ -7,7 +7,7 @@ traduccio_llm:
   # URL d'Ollama. Si apunta a localhost o 127.0.0.1, es tracta com a local (permet auto_pull).
   # Si apunta a una IP externa (ex: "http://192.168.1.50:11434"), es tracta com a servidor remot.
   url: "http://localhost:11434"
-  model: "qwen3.8:27b-mlx"      # Qualsevol model instal·lat o disponible a Ollama
+  model: "qwen3.8:27b"      # Qualsevol model instal·lat o disponible a Ollama
   auto_pull: true          # Si és local i l'usuari no té el model, el descarrega automàticament
   thinking: false          # true = activa el raonament intern (més lent); false = resposta directa (molt més ràpid)
   llengua_desti: "català"  # Llengua a la qual es traduiran les glosses lèxiques (ex: català, castellà, francès...)

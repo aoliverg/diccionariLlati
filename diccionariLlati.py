@@ -19,9 +19,37 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl
 
-DB_FILE = "diccionari.db"
-CONFIG_FILE = "config.yaml"
-I18N_FILE = "i18n.properties"
+def obtenir_dir_base() -> str:
+    """Retorna el directori de l'executable (si és PyInstaller) o de l'script."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def obtenir_dir_recursos() -> str:
+    """Retorna el directori de recursos interns (sys._MEIPASS en PyInstaller) o de l'script."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return sys._MEIPASS
+    return obtenir_dir_base()
+
+
+def resoldre_ruta_fitxer(nom_fitxer: str, preferir_extern: bool = True) -> str:
+    """Cerca primer al directori de treball / executable (editable per l'usuari) i després als recursos interns."""
+    ruta_cwd = os.path.abspath(nom_fitxer)
+    if preferir_extern and os.path.exists(ruta_cwd):
+        return ruta_cwd
+    ruta_base = os.path.join(obtenir_dir_base(), nom_fitxer)
+    if preferir_extern and os.path.exists(ruta_base):
+        return ruta_base
+    ruta_rec = os.path.join(obtenir_dir_recursos(), nom_fitxer)
+    if os.path.exists(ruta_rec):
+        return ruta_rec
+    return ruta_base
+
+
+DB_FILE = resoldre_ruta_fitxer("diccionari.db", preferir_extern=True)
+CONFIG_FILE = resoldre_ruta_fitxer("config.yaml", preferir_extern=True)
+I18N_FILE = resoldre_ruta_fitxer("i18n.properties", preferir_extern=True)
 
 # Estat global del model LatinCy / spaCy (es carrega en segon pla segons config.yaml)
 nlp_latincy = None
@@ -383,7 +411,7 @@ def netejar_pensament_llm(text: str) -> str:
 
 
 # ==============================================================================
-# FIL DE CÀRREGA I AUTOINSTAL·LACIÓ DEL MODEL DE SPACY / LATINCY
+# FIL DE CÀRREGA I DESCÀRREGA AUTÒNOMA DEL MODEL DE SPACY / LATINCY
 # ==============================================================================
 class FilCarregaSpacy(QThread):
     progres = pyqtSignal(str)
@@ -395,96 +423,144 @@ class FilCarregaSpacy(QThread):
         super().__init__()
         self.model_nom = cfg_spacy.get("model", "la_core_web_lg").strip()
         self.auto_install = cfg_spacy.get("auto_install", True)
+        self.dir_models = os.path.join(obtenir_dir_base(), "models")
+        self.desti_model = os.path.join(self.dir_models, self.model_nom)
 
-    def _obtenir_especificacio_pip(self, nom_model: str) -> str:
-        nom_paquet_pip = nom_model.replace("_", "-")
-        api_url = f"https://huggingface.co/api/models/latincy/{nom_model}"
-
+    def _obtenir_url_whl_hf(self, nom_model: str) -> str:
+        """Retorna la URL del .whl del model LatinCy des de Hugging Face."""
+        api_hf = f"https://huggingface.co/api/models/latincy/{nom_model}"
         try:
-            req = urllib.request.Request(api_url, headers={"User-Agent": "DiccionariLlatiApp/1.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            req = urllib.request.Request(api_hf, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 dades = json.loads(resp.read().decode("utf-8"))
-                whls = [
-                    f.get("rfilename", "")
+                whls = sorted(
+                    f["rfilename"]
                     for f in dades.get("siblings", [])
                     if f.get("rfilename", "").endswith(".whl")
-                ]
+                )
                 if whls:
-                    whls.sort()
-                    nom_fitxer_whl = whls[-1]
-                    return f"{nom_paquet_pip} @ https://huggingface.co/latincy/{nom_model}/resolve/main/{nom_fitxer_whl}"
+                    return f"https://huggingface.co/latincy/{nom_model}/resolve/main/{whls[-1]}"
         except Exception:
             pass
-
         nom_fitxer_whl = f"{nom_model}-{self.VERSIO_FALLBACK}-py3-none-any.whl"
-        return f"{nom_paquet_pip} @ https://huggingface.co/latincy/{nom_model}/resolve/main/{nom_fitxer_whl}"
+        return f"https://huggingface.co/latincy/{nom_model}/resolve/main/{nom_fitxer_whl}"
 
-    def _instal_lar_amb_pip(self, spec_pip: str) -> tuple[bool, str]:
-        en_venv = (
-            hasattr(sys, "real_prefix")
-            or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix)
-        )
+    def _descarregar_i_extreure_whl(self, url: str, desti_dir: str, etiqueta_progres: str = ""):
+        """Descarrega un .whl amb barra de progrés i l'extreu dins desti_dir."""
+        import zipfile
+        import tempfile
 
-        cmd = [sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check"]
-        if not en_venv:
-            cmd.extend(["--user", "--break-system-packages"])
-        cmd.append(spec_pip)
+        fd, tmp_whl = tempfile.mkstemp(suffix=".whl")
+        os.close(fd)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                total_bytes = int(resp.headers.get("Content-Length", 0))
+                descarregat = 0
+                ultim_pct = -1
+                with open(tmp_whl, "wb") as out_f:
+                    while True:
+                        bloc = resp.read(1024 * 128)
+                        if not bloc:
+                            break
+                        out_f.write(bloc)
+                        descarregat += len(bloc)
+                        if etiqueta_progres and total_bytes > 0:
+                            pct = int((descarregat / total_bytes) * 100)
+                            if pct != ultim_pct and pct % 2 == 0:
+                                ultim_pct = pct
+                                mb_act = descarregat / (1024 * 1024)
+                                mb_tot = total_bytes / (1024 * 1024)
+                                self.progres.emit(f"⏳ {etiqueta_progres}: {pct}% ({mb_act:.1f}/{mb_tot:.1f} MB)...")
 
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        if res.returncode == 0:
-            return True, ""
+            if etiqueta_progres:
+                self.progres.emit(f"⏳ Descomprimint '{self.model_nom}'...")
+            with zipfile.ZipFile(tmp_whl, "r") as zf:
+                zf.extractall(desti_dir)
+        finally:
+            if os.path.exists(tmp_whl):
+                try:
+                    os.remove(tmp_whl)
+                except Exception:
+                    pass
 
-        if not en_venv:
-            cmd_retry = [
-                sys.executable, "-m", "pip", "install", "--quiet",
-                "--disable-pip-version-check", "--break-system-packages", spec_pip
-            ]
-            res2 = subprocess.run(cmd_retry, capture_output=True, text=True)
-            if res2.returncode == 0:
-                return True, ""
-            res = res2
-
-        linies_err = [l.strip() for l in res.stderr.splitlines() if l.strip()]
-        return False, (linies_err[-1] if linies_err else "Error pip install.")
+    def _registrar_uv_normalizer(self):
+        """Registra la factory 'uv_normalizer' a spaCy mitjançant @Language.factory."""
+        from spacy.language import Language
+        if not Language.has_factory("uv_normalizer"):
+            @Language.factory("uv_normalizer", default_config={"method": "uv"})
+            def _uv_normalizer(nlp, name, method: str = "uv", **kwargs):
+                def _proc(doc):
+                    for token in doc:
+                        val = token.norm_ if token.norm_ else token.text
+                        if method == "vu":
+                            val = val.replace("u", "v").replace("U", "V").replace("j", "i").replace("J", "I")
+                        else:
+                            val = val.replace("v", "u").replace("V", "U").replace("j", "i").replace("J", "I")
+                        token.norm_ = val
+                    return doc
+                return _proc
 
     def run(self):
+        import importlib
         try:
             import spacy
         except ImportError:
-            self.progres.emit("⚠ Falta 'spacy' (pip install spacy).")
+            self.progres.emit("⚠ Falta 'spacy' (mode SQLite actiu).")
             self.acabat.emit(None, "")
             return
 
         try:
+            os.makedirs(self.desti_model, exist_ok=True)
+            if self.desti_model not in sys.path:
+                sys.path.insert(0, self.desti_model)
+
+            # 1. Comprovem si el model ja és a models/<nom_model> o al sistema Python
+            model_disponible = os.path.exists(os.path.join(self.desti_model, self.model_nom))
+            if not model_disponible:
+                try:
+                    importlib.import_module(self.model_nom)
+                    model_disponible = True
+                except ModuleNotFoundError:
+                    model_disponible = False
+
+            if not model_disponible:
+                if not self.auto_install:
+                    self.progres.emit(f"ℹ Model '{self.model_nom}' no instal·lat (auto_install desactivat).")
+                    self.acabat.emit(None, "")
+                    return
+                self.progres.emit(f"⏳ Descarregant '{self.model_nom}'...")
+                url_whl = self._obtenir_url_whl_hf(self.model_nom)
+                self._descarregar_i_extreure_whl(url_whl, self.desti_model, f"Descarregant '{self.model_nom}'")
+
+            # 2. Comprovem i descarreguem 'la-latincy-lookups' si no es pot importar
+            importlib.invalidate_caches()
+            try:
+                importlib.import_module("la_latincy_lookups")
+            except ModuleNotFoundError:
+                if self.auto_install:
+                    self.progres.emit("⏳ Descarregant 'la-latincy-lookups'...")
+                    req_pypi = urllib.request.Request(
+                        "https://pypi.org/pypi/la-latincy-lookups/json",
+                        headers={"User-Agent": "Mozilla/5.0"}
+                    )
+                    dades_pypi = json.loads(urllib.request.urlopen(req_pypi, timeout=20).read().decode("utf-8"))
+                    whls_lk = [u["url"] for u in dades_pypi.get("urls", []) if u.get("filename", "").endswith(".whl")]
+                    if whls_lk:
+                        self._descarregar_i_extreure_whl(whls_lk[-1], self.desti_model)
+
+            # 3. Registrem uv_normalizer abans de carregar el model
+            self._registrar_uv_normalizer()
+
+            # 4. Carreguem el model LatinCy
             self.progres.emit(f"LatinCy ({self.model_nom})...")
-            nlp = spacy.load(self.model_nom)
+            importlib.invalidate_caches()
+            mod = importlib.import_module(self.model_nom)
+            nlp = mod.load() if hasattr(mod, "load") else spacy.load(self.model_nom)
             self.acabat.emit(nlp, self.model_nom)
-            return
-        except OSError:
-            if not self.auto_install:
-                self.acabat.emit(None, "")
-                return
-        except Exception:
-            self.acabat.emit(None, "")
-            return
 
-        self.progres.emit(f"⏳ Installing '{self.model_nom}'...")
-        try:
-            spec_pip = self._obtenir_especificacio_pip(self.model_nom)
-            ok, err_msg = self._instal_lar_amb_pip(spec_pip)
-            if not ok:
-                self.progres.emit(f"⚠ '{self.model_nom}': {err_msg}")
-                self.acabat.emit(None, "")
-                return
-
-            import importlib
-            import site
-            importlib.reload(site)
-
-            nlp = spacy.load(self.model_nom)
-            self.acabat.emit(nlp, self.model_nom)
         except Exception as e:
-            self.progres.emit(f"⚠ '{self.model_nom}': {e}")
+            self.progres.emit(f"⚠ Error LatinCy ({self.model_nom}): {e}")
             self.acabat.emit(None, "")
 
 
