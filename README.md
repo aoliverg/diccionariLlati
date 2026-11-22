@@ -13,8 +13,6 @@ Aplicació d'escriptori multilingüe (`Català`, `Español`, `English`, `França
 7. [Configuració avançada (`config.yaml`)](#7-configuració-avançada-configyaml)
 8. [Estructura del projecte i generació de la base de dades](#8-estructura-del-projecte-i-generació-de-la-base-de-dades)
 
----
-
 ## 1. Funcionalitats principals
 
 * **Informació Morfològica (Pestanya 1):** Identificació instantània de lemes a partir de qualsevol forma flexionada, reconeixement automàtic de grafia ramista o clàssica (`u`/`v`, `i`/`j`), enunciats canònics, declinacions, conjugacions, règim preposicional, significat en anglès i traducció automàtica de glosses amb memòria cau persistent a SQLite.
@@ -25,8 +23,6 @@ Aplicació d'escriptori multilingüe (`Català`, `Español`, `English`, `França
 * **Traducció i Comentari amb Ollama (Pestanya 5):** Traducció al català (o a la llengua configurada) i anàlisi gramatical assistida per LLM en local o servidor remot, amb opció d'injectar l'anàlisi prèvia de LatinCy al *prompt* i un botó per inspeccionar la instrucció exacta enviada al model.
 * **Exportació immediata:** Botons per copiar els resultats de qualsevol pestanya en **Text pla** o en codi **LaTeX** llest per a documents acadèmics.
 * **Interfície multilingüe:** Canvi d'idioma en temps real des de la barra superior (`Català`, `Español`, `English`, `Français`, `Latina`) mitjançant el fitxer `i18n.properties`.
-
----
 
 ## 2. Fonts lèxiques, formaris i models de dades
 
@@ -41,15 +37,13 @@ L'aplicació combina diversos recursos acadèmics oberts de filologia clàssica 
 | **Variants històriques i famílies** (`variants_hist`, `families`) | Wiktionary / Kaikki.org i taules de normalització filològica | Registre de formes arcaiques, epigràfiques, tardanes o medievals, variants ortogràfiques (`u`/`v`, `i`/`j`) i agrupacions de mots derivats per al *Mode filològic / avançat*. | CC BY-SA 3.0 / 4.0 |
 | **Anàlisi d'oracions** (Pestanya 4) | LatinCy (`la_core_web_sm/md/lg/trf`), Patrick J. Burns (`latincy` / spaCy) | Models neuronals entrenats sobre els *treebanks* llatins d'Universal Dependencies (*Perseus*, *PROIEL*, *ITTB*, *LLCT*, *UDante*) per a lematització, morfologia i sintaxi de dependències. | MIT / CC BY-SA 4.0 |
 
----
-
 ## 3. Instal·lació mitjançant executables (Releases)
 
-A l'apartat **Releases** del repositori hi ha disponibles els paquets executables precompilats per a **Windows**, **Linux** i **macOS**, que no requereixen instal·lar Python manualment:
+A l'apartat **Releases** del repositori hi ha disponibles els executables precompilats per a **Windows**, **Linux** i **macOS**, juntament amb la base de dades ja generada `diccionari.db` (allotjada a *Releases* i no al codi font per la seva mida elevada):
 
-1. Descarrega l'arxiu corresponent al teu sistema operatiu des de la secció **Releases** del repositori.
-2. Descomprimeix el paquet en una carpeta del teu ordinador.
-3. Assegura't que a la mateixa carpeta de l'executable hi siguin els fitxers de recursos (`diccionari.db`, `config.yaml` i `i18n.properties`).
+1. Descarrega des de la secció **Releases** del repositori l'executable corresponent al teu sistema operatiu (`diccionariLlati` o `diccionariLlati.exe`).
+2. **Important:** Descarrega també des del mateix apartat **Releases** l'arxiu `diccionari.db` i desa'l **dins el mateix directori** on hagis posat l'executable. D'aquesta manera l'aplicació tindrà totes les dades llestes a l'instant i no hauràs de generar la base de dades tu mateix.
+3. Comprova que al mateix directori hi siguin també els fitxers `config.yaml` i `i18n.properties` (inclosos al paquet de la *Release*).
 4. Executa `diccionariLlati` (o `diccionariLlati.exe` a Windows).
 
 Notes segons el sistema operatiu:
@@ -58,13 +52,18 @@ Notes segons el sistema operatiu:
 * **Linux:** Assegura't que el fitxer té permisos d'execució (`chmod +x diccionariLlati`).
 * **Windows:** Si Windows SmartScreen mostra un avís en tractar-se d'un executable nou, prem **Més informació** i **Executa de totes maneres**.
 
----
-
 ## 4. Instal·lació i execució des del codi font
 
 Si prefereixes executar el programa directament amb Python, es recomana **Python 3.10 o superior** i un entorn virtual (`venv`).
 
-### 4.1. Crear i activar l'entorn virtual
+### 4.1. Obtenir la base de dades (`diccionari.db`)
+
+Per la seva mida, el fitxer `diccionari.db` no es distribueix dins l'arbre principal del repositori. Tens dues opcions:
+
+* **Opció recomanada (descàrrega directa):** Descarrega el fitxer `diccionari.db` ja compilat des de l'apartat **Releases** del repositori i desa'l al mateix directori que `diccionariLlati.py`.
+* **Opció alternativa (generació local):** Pots construir la base de dades tu mateix des de zero executant `python3 generarCLOSED.py` i tot seguit `python3 generarBD.py` (vegeu la secció 8).
+
+### 4.2. Crear i activar l'entorn virtual
 
 ```bash
 python3 -m venv .venv
@@ -76,33 +75,35 @@ source .venv/bin/activate
 .venv\Scripts\Activate.ps1
 ```
 
-### 4.2. Instal·lar els requeriments
+### 4.3. Instal·lar els requeriments
 
 #### Opció A: Instal·lació bàsica (Recomanada per a equips lleugers)
+
 Inclou la interfície gràfica, tot el diccionari, les taules de flexió canònica, el *Lewis & Short*, l'anàlisi lèxica bàsica d'oracions (via SQLite) i la compatibilitat amb Ollama (si es té instal·lat al sistema).
 
 ```bash
 pip install -r requeriments-basic.txt
 ```
+
 *(Conté: `PyQt6` i `PyYAML`)*
 
 #### Opció B: Instal·lació completa (Amb anàlisi sintàctica neuronal LatinCy)
+
 Afegeix `spacy` per descarregar i executar automàticament els models neuronals **LatinCy** (`la_core_web_sm`, `md`, `lg` o `trf`) des de Hugging Face la primera vegada que s'obre el programa.
 
 ```bash
 pip install -r requeriments-all.txt
 ```
+
 *(Conté: `PyQt6`, `PyYAML` i `spacy`)*
 
 *Nota sobre dependències:* No cal instal·lar els paquets Python `ollama` ni `huggingface_hub`. L'aplicació es comunica directament mitjançant peticions HTTP estàndard amb Ollama i Hugging Face.
 
-### 4.3. Executar l'aplicació
+### 4.4. Executar l'aplicació
 
 ```bash
 python3 diccionariLlati.py
 ```
-
----
 
 ## 5. Com instal·lar i configurar Ollama (Opcional)
 
@@ -132,8 +133,6 @@ Si vols activar la traducció assistida per intel·ligència artificial en local
 
 Un cop instal·lat i iniciat Ollama, prem el botó **Tornar a comprovar** dins la pestanya *Traducció (Ollama)* de l'aplicació.
 
----
-
 ## 6. Guia de models d'IA per mides i maquinari
 
 Pots configurar el model desitjat editant el camp `model:` dins de `config.yaml`. Si `auto_pull: true` està activat, l'aplicació el descarregarà automàticament la primera vegada que facis una traducció, o bé el pots descarregar prèviament des del terminal amb `ollama pull <nom_del_model>`.
@@ -145,8 +144,6 @@ Pots configurar el model desitjat editant el camp `model:` dins de `config.yaml`
 | **Avançat / Estació de treball** | 24 – 32 GB RAM | `gemma3:27b`, `qwen3:30b-a3b` | `ollama pull gemma3:27b` | Alta precisió en subordinació llatina (ablatius absoluts, estil indirecte, subjuntius) i traducció literària acurada. |
 | **Màxima Qualitat (Apple Silicon / GPU)** | 32 – 64+ GB RAM | `qwen3:32b`, `llama3.3:70b` | `ollama pull qwen3:32b` | Rendiment filològic de referència per a textos clàssics extensos i comentaris sintàctics detallats. |
 
----
-
 ## 7. Configuració avançada (`config.yaml`)
 
 El fitxer `config.yaml` permet personalitzar el comportament dels mòduls d'IA i de PLN:
@@ -157,8 +154,6 @@ El fitxer `config.yaml` permet personalitzar el comportament dels mòduls d'IA i
 * `traduccio_llm.thinking`: Posa-ho a `false` per obtenir respostes ràpides i directes, o a `true` per activar el raonament intern pas per pas en models compatibles.
 * `traduccio_llm.llengua_desti`: Llengua a la qual es traduiran les glosses lèxiques a la pestanya d'Informació Morfològica (ex. `"català"`, `"castellà"`, `"anglès"`, `"francès"`).
 
----
-
 ## 8. Estructura del projecte i generació de la base de dades
 
 ### Fitxers necessaris per executar l'aplicació
@@ -168,15 +163,15 @@ El fitxer `config.yaml` permet personalitzar el comportament dels mòduls d'IA i
 ├── diccionariLlati(.exe)      # Executable o script principal (diccionariLlati.py)
 ├── config.yaml                # Configuració de spaCy/LatinCy i Ollama
 ├── i18n.properties            # Cadenes de text de la interfície en 5 llengües
-├── diccionari.db              # Base de dades SQLite amb tot el lèxic i formari
+├── diccionari.db              # Base de dades SQLite (disponible a Releases o generable localment)
 ├── requeriments-basic.txt     # Dependències mínimes per a execució des de codi font
 ├── requeriments-all.txt       # Dependències completes (+ spacy)
 └── README.md                  # Aquesta documentació
 ```
 
-### Scripts de construcció de la base de dades (només per a desenvolupament)
+### Scripts de construcció de la base de dades (generació local opcional)
 
-Aquests scripts s'utilitzen únicament per reconstruir `diccionari.db` des de zero a partir dels formaris i diccionaris originals, i no són necessaris per als usuaris finals:
+Aquests scripts serveixen per reconstruir `diccionari.db` des de zero si l'usuari prefereix generar-la localment en lloc de descarregar-la des de **Releases**:
 
 1. `generarCLOSED.py`: Genera el fitxer `lat.closed` amb les declinacions completes dels pronoms, numerals, participis, gerundis, gerundius i infinitius analítics a partir del corpus base `lat`.
 2. `generarBD.py`: Compila els formaris (`lat`, `lat.closed`), les glosses, les variants històriques, les famílies lèxiques i les entrades del *Lewis & Short* dins la base de dades SQLite `diccionari.db`.
