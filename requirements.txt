@@ -1,0 +1,4 @@
+PyQt6
+PyYAML
+spacy
+huggingface_hub
